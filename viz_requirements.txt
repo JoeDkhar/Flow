@@ -3,3 +3,4 @@ faker>=22.0.0
 numpy>=1.26.0
 streamlit>=1.32.0
 plotly>=5.20.0
+python-dateutil>=2.9.0
