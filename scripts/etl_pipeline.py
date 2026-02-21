@@ -65,7 +65,7 @@ def transform(conn: sqlite3.Connection) -> pd.DataFrame:
     create_sql = f"DROP TABLE IF EXISTS fact_order_performance;\n"
     create_sql += f"CREATE TABLE fact_order_performance AS\n{sql};"
 
-    conn.execute(create_sql)   # BUG: executescript needed for multi-statement
+    conn.executescript(create_sql)
     conn.commit()
 
     result_df = pd.read_sql("SELECT * FROM fact_order_performance", conn)
