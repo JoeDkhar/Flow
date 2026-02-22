@@ -129,7 +129,7 @@ with col_left:
         y="Team",
         orientation="h",
         color="Avg Hours",
-        color_continuous_scale="Reds",
+        color_continuous_scale="OrRd",
         labels={"Avg Hours": "Average Hours"},
     )
     fig1.update_layout(coloraxis_showscale=False, margin=dict(l=0, r=0, t=0, b=0))
