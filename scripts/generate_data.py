@@ -58,7 +58,7 @@ REGION_DELIVERY_FACTOR: dict[str, float] = {
     "West":      1.4,
 }
 
-TEAM_C_BOTTLENECK_MULTIPLIER = 2.8   # Team C Processing→Picking is ~3x slower
+TEAM_C_BOTTLENECK_MULTIPLIER = 3.1   # increased — bottleneck was not visible in charts   # Team C Processing→Picking is ~3x slower
 
 
 # ── Data generation ────────────────────────────────────────────────────────
