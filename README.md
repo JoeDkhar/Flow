@@ -1,4 +1,4 @@
-# Flow — B2B Wholesale Order Fulfillment Analytics
+# Flow â€” B2B Wholesale Order Fulfillment Analytics
 
 An end-to-end data engineering and analytics project tracking order fulfillment
 performance for a wholesale distributor serving retail buyers across North America.
@@ -7,19 +7,19 @@ performance for a wholesale distributor serving retail buyers across North Ameri
 
 ```
 Flow/
-├── data/raw/
-│   ├── orders.csv          # 2,000 synthetic wholesale orders
-│   └── order_logs.csv      # ~8,000 status-change events
-├── scripts/
-│   ├── generate_data.py    # Synthetic data generation (seed=42)
-│   └── etl_pipeline.py     # ETL + SQL transformations → SQLite
-├── sql_queries/
-│   └── transformations.sql # CTEs, LEAD() window functions
-├── outputs/
-│   └── gold_order_performance.csv
-├── operations.db
-├── dashboard.py            # Streamlit dashboard
-└── viz_requirements.txt
+â”œâ”€â”€ data/raw/
+â”‚   â”œâ”€â”€ orders.csv          # 2,000 synthetic wholesale orders
+â”‚   â””â”€â”€ order_logs.csv      # ~8,000 status-change events
+â”œâ”€â”€ scripts/
+â”‚   â”œâ”€â”€ generate_data.py    # Synthetic data generation (seed=42)
+â”‚   â””â”€â”€ etl_pipeline.py     # ETL + SQL transformations â†’ SQLite
+â”œâ”€â”€ sql_queries/
+â”‚   â””â”€â”€ transformations.sql # CTEs, LEAD() window functions
+â”œâ”€â”€ outputs/
+â”‚   â””â”€â”€ gold_order_performance.csv
+â”œâ”€â”€ operations.db
+â”œâ”€â”€ dashboard.py            # Streamlit dashboard
+â””â”€â”€ viz_requirements.txt
 ```
 
 ## Quick Start
@@ -36,7 +36,7 @@ streamlit run dashboard.py
 ### Data Generation
 - 2,000 wholesale orders across 5 regions and 4 fulfillment teams
 - ~8,000 status-change log events with realistic inter-stage delays
-- Intentional bottleneck in Team C (Processing → Picking stage)
+- Intentional bottleneck in Team C (Processing â†’ Picking stage)
 - ~15% backorder rate, ~5% cancellation rate
 
 ### SQL Transformations
@@ -46,7 +46,7 @@ streamlit run dashboard.py
 
 ### KPIs Tracked
 - On-Time Delivery Rate by SLA tier (Critical <24h, Expedited <48h, Standard <72h)
-- Average order cycle time (Received → Delivered)
+- Average order cycle time (Received â†’ Delivered)
 - Backorder rate and cancellation rate
 - Stage-level bottleneck analysis by fulfillment team
 
@@ -56,4 +56,5 @@ streamlit run dashboard.py
 MCA, CHRIST (Deemed to be University), Bengaluru  
 [github.com/JoeDkhar](https://github.com/JoeDkhar)
 
-*March 2026 — Portfolio Project: B2B Operations Analytics System*
+*March 2026 â€” Portfolio Project: B2B Operations Analytics System*
+
