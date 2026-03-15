@@ -17,31 +17,31 @@
 WITH
 
 -- =============================================================================
--- CTE 1 · status_intervals
+-- CTE 1 · stage_intervals
 -- -----------------------------------------------------------------------------
 -- Pairs each log row with the immediately following log row for the same order
--- using LEAD() so we can measure the time the order spent in each status.
--- hours_in_status is NULL for the terminal row of each order (no successor).
--- Columns: order_id, from_status, to_status, entered_at, exited_at,
---          hours_in_status
+-- using LEAD() so we can measure the time the order spent in each stage.
+-- hours_in_stage is NULL for the terminal row of each order (no successor).
+-- Columns: order_id, from_stage, to_stage, entered_at, exited_at,
+--          hours_in_stage
 -- =============================================================================
-status_intervals AS (
+stage_intervals AS (
     SELECT
         order_id,
 
-        -- The status that was entered on this log row
-        status                                              AS from_status,
+        -- The stage that was entered on this log row
+        stage                                              AS from_stage,
 
-        -- The status that immediately follows within the same order
-        LEAD(status)      OVER (
+        -- The stage that immediately follows within the same order
+        LEAD(stage)      OVER (
             PARTITION BY order_id
             ORDER BY     timestamp
-        )                                                   AS to_status,
+        )                                                   AS to_stage,
 
-        -- Timestamp this status was entered
+        -- Timestamp this stage was entered
         timestamp                                           AS entered_at,
 
-        -- Timestamp the next status was entered (= when this one was exited)
+        -- Timestamp the next stage was entered (= when this one was exited)
         LEAD(timestamp)   OVER (
             PARTITION BY order_id
             ORDER BY     timestamp
@@ -58,7 +58,7 @@ status_intervals AS (
                 ) - JULIANDAY(timestamp)
             ) * 24.0,
             2
-        )                                                   AS hours_in_status
+        )                                                   AS hours_in_stage
 
     FROM raw_logs
 ),
@@ -79,15 +79,15 @@ order_timeline AS (
         order_id,
 
         -- First time the order reached each key milestone
-        MIN(CASE WHEN status = 'Confirmed'  THEN timestamp END) AS confirmed_at,
-        MIN(CASE WHEN status = 'Shipped'    THEN timestamp END) AS shipped_at,
-        MIN(CASE WHEN status = 'Delivered'  THEN timestamp END) AS delivered_at,
+        MIN(CASE WHEN stage = 'Confirmed'  THEN timestamp END) AS confirmed_at,
+        MIN(CASE WHEN stage = 'Shipped'    THEN timestamp END) AS shipped_at,
+        MIN(CASE WHEN stage = 'Delivered'  THEN timestamp END) AS delivered_at,
 
         -- Flag: was the order ever placed in a Backordered state?
-        MAX(CASE WHEN status = 'Backordered' THEN 1 ELSE 0 END) AS was_backordered,
+        MAX(CASE WHEN stage = 'Backordered' THEN 1 ELSE 0 END) AS was_backordered,
 
         -- Flag: was the order ever cancelled?
-        MAX(CASE WHEN status = 'Cancelled'   THEN 1 ELSE 0 END) AS was_cancelled
+        MAX(CASE WHEN stage = 'Cancelled'   THEN 1 ELSE 0 END) AS was_cancelled
 
     FROM raw_logs
     GROUP BY order_id
@@ -96,9 +96,9 @@ order_timeline AS (
 -- =============================================================================
 -- CTE 3 · ranked_stages
 -- -----------------------------------------------------------------------------
--- Assigns a ROW_NUMBER() rank to every status interval per order, ordering by
--- hours_in_status DESC so rank 1 = the single stage that consumed the most time.
--- Terminal / administrative statuses are excluded from the ranking so they
+-- Assigns a ROW_NUMBER() rank to every stage interval per order, ordering by
+-- hours_in_stage DESC so rank 1 = the single stage that consumed the most time.
+-- Terminal / administrative stagees are excluded from the ranking so they
 -- cannot be mis-identified as bottlenecks:
 --   · Backordered  — external hold, not a process stage
 --   · Cancelled    — order did not complete
@@ -108,17 +108,17 @@ order_timeline AS (
 ranked_stages AS (
     SELECT
         order_id,
-        from_status                                         AS stage,
-        hours_in_status,
+        from_stage                                         AS stage,
+        hours_in_stage,
         ROW_NUMBER() OVER (
             PARTITION BY order_id
-            ORDER BY     hours_in_status DESC
+            ORDER BY     hours_in_stage DESC
         )                                                   AS stage_rank
 
-    FROM status_intervals
+    FROM stage_intervals
     WHERE
-        from_status NOT IN ('Backordered', 'Cancelled', 'Delivered')
-        AND hours_in_status IS NOT NULL
+        from_stage NOT IN ('Backordered', 'Cancelled', 'Delivered')
+        AND hours_in_stage IS NOT NULL
 ),
 
 -- =============================================================================
@@ -132,7 +132,7 @@ bottleneck_stages AS (
     SELECT
         order_id,
         stage                                               AS bottleneck_stage,
-        hours_in_status                                     AS bottleneck_hours
+        hours_in_stage                                     AS bottleneck_hours
 
     FROM ranked_stages
     WHERE stage_rank = 1
@@ -153,7 +153,7 @@ bottleneck_stages AS (
 --   Expedited  : breached if shipped later than 2.0 days after order_date
 --   Standard   : breached if shipped later than 3.0 days after order_date
 --
--- sla_status : 'On-Time' | 'Breached'
+-- sla_stage : 'On-Time' | 'Breached'
 -- =============================================================================
 order_metrics AS (
     SELECT
@@ -192,7 +192,7 @@ order_metrics AS (
             WHEN tl.shipped_at IS NULL
                 THEN NULL
             ELSE 'On-Time'
-        END                                                 AS sla_status
+        END                                                 AS sla_stage
 
     FROM raw_orders         o
     JOIN order_timeline     tl USING (order_id)
@@ -210,7 +210,7 @@ order_metrics AS (
 --   product_category, order_date, order_value_usd, total_units,
 --   confirmed_at, shipped_at, delivered_at,
 --   time_to_confirm_hours, time_to_ship_hours, time_to_deliver_hours,
---   sla_status, sla_breached (integer: 1 = Breached, 0 = On-Time, NULL = unknown),
+--   sla_stage, sla_breached (integer: 1 = Breached, 0 = On-Time, NULL = unknown),
 --   was_backordered, bottleneck_stage, bottleneck_hours
 -- =============================================================================
 SELECT
@@ -236,8 +236,8 @@ SELECT
     om.time_to_deliver_hours,
 
     -- ── SLA evaluation ───────────────────────────────────────────────────────
-    om.sla_status,
-    CASE om.sla_status
+    om.sla_stage,
+    CASE om.sla_stage
         WHEN 'Breached'  THEN 1
         WHEN 'On-Time'   THEN 0
         ELSE                  NULL   -- shipped_at IS NULL → indeterminate

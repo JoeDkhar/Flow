@@ -14,3 +14,7 @@ build/
 
 # Data files
 data/raw/*.csv
+
+operations.db
+
+outputs

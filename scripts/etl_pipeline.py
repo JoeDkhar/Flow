@@ -135,6 +135,11 @@ def transform(conn: sqlite3.Connection) -> None:
     log.info("Reading transformation SQL from %s …", TRANSFORM_SQL.name)
     sql_body = TRANSFORM_SQL.read_text(encoding="utf-8").strip()
 
+    # Strip any trailing semicolon from the SQL body — we wrap it ourselves.
+    # The transformations.sql file ends with a semicolon that would break the
+    # CREATE TABLE … AS <select>; pattern used by executescript().
+    sql_body = sql_body.rstrip().rstrip(";")
+
     # Build the full script: drop the old table then recreate it.
     # executescript() requires statements to end with semicolons.
     script = (
@@ -199,13 +204,15 @@ def validate(conn: sqlite3.Connection) -> pd.DataFrame:
             f"{neg_ship} row(s) have negative time_to_ship_hours."
         )
 
-    # Check 3: sla_status must only be 'On-Time', 'Breached', or NULL
+    # Check 3: sla_stage must only be 'On-Time' or 'Breached'
+    # The existing transformations.sql names this column sla_stage.
+    sla_col = "sla_stage" if "sla_stage" in df.columns else "sla_status"
     valid_sla = {"On-Time", "Breached"}
-    bad_sla = df["sla_status"].dropna()
+    bad_sla = df[sla_col].dropna()
     bad_sla_values = set(bad_sla[~bad_sla.isin(valid_sla)].unique())
     if bad_sla_values:
         failures.append(
-            f"Unexpected sla_status values found: {bad_sla_values}"
+            f"Unexpected {sla_col} values found: {bad_sla_values}"
         )
 
     if failures:
@@ -277,6 +284,11 @@ def build_dashboard_json(df: pd.DataFrame) -> dict[str, Any]:
     }
 
     # ── kpis ────────────────────────────────────────────────────────────────
+    # Normalise: transformations.sql outputs 'sla_stage'; alias to sla_status
+    # for the JSON contract so the frontend always sees 'sla_status'.
+    if "sla_stage" in df.columns and "sla_status" not in df.columns:
+        df = df.rename(columns={"sla_stage": "sla_status"})
+
     # on_time_rate: share of orders with a known SLA verdict that are On-Time
     sla_known = df["sla_status"].dropna()
     on_time_rate = (
