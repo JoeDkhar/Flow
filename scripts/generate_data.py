@@ -26,18 +26,26 @@ import pandas as pd
 from faker import Faker
 
 # ---------------------------------------------------------------------------
-# Reproducibility
+# Reproducibility — module-local RNG instances (never mutates global state)
 # ---------------------------------------------------------------------------
 SEED: int = 42
-random.seed(SEED)
-np.random.seed(SEED)
-fake = Faker()
-Faker.seed(SEED)
+
+# Module-local Python RNG; does NOT affect the process-level random module state
+PY_RANDOM: random.Random = random.Random(SEED)
+
+# Module-local NumPy RNG via the new Generator API
+NP_RANDOM: np.random.Generator = np.random.default_rng(SEED)
+
+# Faker instance seeded per-instance; Faker.seed() is NOT called so the
+# class-level shared state for other Faker users is left untouched
+fake: Faker = Faker()
+fake.seed_instance(SEED)
 
 # ---------------------------------------------------------------------------
 # Output paths
 # ---------------------------------------------------------------------------
-OUTPUT_DIR = Path("data/raw")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+OUTPUT_DIR = REPO_ROOT / "data" / "raw"
 ORDERS_PATH = OUTPUT_DIR / "orders.csv"
 LOGS_PATH = OUTPUT_DIR / "order_logs.csv"
 
@@ -116,7 +124,7 @@ ORDER_DATE_LOOKBACK_DAYS: int = 180
 
 def random_hours(min_h: float, max_h: float) -> float:
     """Return a uniformly distributed random number of hours in [min_h, max_h]."""
-    return random.uniform(min_h, max_h)
+    return PY_RANDOM.uniform(min_h, max_h)
 
 
 def advance_time(current: datetime, hours: float) -> datetime:
@@ -162,18 +170,18 @@ def generate_orders(n: int = NUM_ORDERS) -> pd.DataFrame:
         buyer_name = fake.company()
 
         # Categorical fields
-        region = random.choice(REGIONS)
-        fulfillment_team = random.choice(FULFILLMENT_TEAMS)
-        priority = random.choices(PRIORITY_CHOICES, weights=PRIORITY_WEIGHTS, k=1)[0]
-        product_category = random.choice(PRODUCT_CATEGORIES)
+        region = PY_RANDOM.choice(REGIONS)
+        fulfillment_team = PY_RANDOM.choice(FULFILLMENT_TEAMS)
+        priority = PY_RANDOM.choices(PRIORITY_CHOICES, weights=PRIORITY_WEIGHTS, k=1)[0]
+        product_category = PY_RANDOM.choice(PRODUCT_CATEGORIES)
 
         # Random datetime within last 6 months (stored as naive UTC for simplicity)
-        seconds_back = random.uniform(0, ORDER_DATE_LOOKBACK_DAYS * 86_400)
+        seconds_back = PY_RANDOM.uniform(0, ORDER_DATE_LOOKBACK_DAYS * 86_400)
         order_date = lookback_start + timedelta(seconds=seconds_back)
 
         # Numeric fields
-        order_value_usd = round(random.uniform(*ORDER_VALUE_RANGE), 2)
-        total_units = random.randint(*TOTAL_UNITS_RANGE)
+        order_value_usd = round(PY_RANDOM.uniform(*ORDER_VALUE_RANGE), 2)
+        total_units = PY_RANDOM.randint(*TOTAL_UNITS_RANGE)
 
         rows.append(
             {
@@ -219,10 +227,10 @@ def generate_logs(orders: pd.DataFrame) -> pd.DataFrame:
     log_rows: List[Dict[str, Any]] = []
 
     # Pre-determine which orders are backordered or cancelled (for reproducibility)
-    backorder_flags = np.random.random(len(orders)) < BACKORDER_PROB
-    cancel_flags    = np.random.random(len(orders)) < CANCEL_PROB
+    backorder_flags = NP_RANDOM.random(len(orders)) < BACKORDER_PROB
+    cancel_flags    = NP_RANDOM.random(len(orders)) < CANCEL_PROB
 
-    for idx, order in orders.iterrows():
+    for pos, (_, order) in enumerate(orders.iterrows()):
         order_id        = order["order_id"]
         region          = order["region"]
         fulfillment_team = order["fulfillment_team"]
@@ -231,13 +239,13 @@ def generate_logs(orders: pd.DataFrame) -> pd.DataFrame:
         # Parse the order_date as the timestamp for the first stage
         current_time = datetime.strptime(order_date_str, "%Y-%m-%d %H:%M:%S")
 
-        is_backordered = backorder_flags[idx]
-        is_cancelled   = cancel_flags[idx]
+        is_backordered = backorder_flags[pos]
+        is_cancelled   = cancel_flags[pos]
 
         # Pick a random mid-stage (index 1-5, i.e., not first or last) for
         # these special events to occur
-        backorder_stage_idx = random.randint(1, len(STAGES) - 3)  # mid-pipeline
-        cancel_stage_idx    = random.randint(1, len(STAGES) - 2)  # mid-pipeline
+        backorder_stage_idx = PY_RANDOM.randint(1, len(STAGES) - 3)  # mid-pipeline
+        cancel_stage_idx    = PY_RANDOM.randint(1, len(STAGES) - 2)  # mid-pipeline
 
         # Track whether special events have already fired
         backorder_fired = False
