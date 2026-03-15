@@ -11,3 +11,6 @@ outputs/*.csv
 *.egg-info/
 dist/
 build/
+
+# Data files
+data/raw/*.csv
