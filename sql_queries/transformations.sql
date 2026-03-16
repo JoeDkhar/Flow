@@ -1,9 +1,9 @@
 -- transformations.sql
--- Full pipeline: raw logs → status intervals → bottleneck → SLA → gold fact table
+-- Full pipeline: raw logs → stage intervals → bottleneck → SLA → gold fact table
 --
 -- Execution order (handled by etl_pipeline.py):
 --   1. ranked_logs       — deterministic ordering within each order
---   2. status_intervals  — LEAD() window to derive time-in-status per stage
+--   2. stage_intervals  — LEAD() window to derive time-in-stage per stage
 --   3. order_timeline    — aggregate key timestamps per order
 --   4. bottleneck_stages — identify the single stage with longest dwell time
 --   5. fact_order_performance — final gold table joined with orders metadata
@@ -13,20 +13,20 @@
 WITH ranked_logs AS (
     SELECT
         order_id,
-        status,
+        stage,
         timestamp,
         ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY timestamp) AS rn
     FROM raw_logs
 ),
 
--- ── CTE 2: Pair each status row with the next using LEAD() ───────────────
--- This gives us (status, next_status, entered_at, exited_at, hours_in_status)
+-- ── CTE 2: Pair each stage row with the next using LEAD() ───────────────
+-- This gives us (stage, next_stage, entered_at, exited_at, hours_in_stage)
 -- for every stage transition an order went through.
-status_intervals AS (
+stage_intervals AS (
     SELECT
         order_id,
-        status                                                          AS from_status,
-        LEAD(status)    OVER (PARTITION BY order_id ORDER BY timestamp) AS to_status,
+        stage                                                          AS from_stage,
+        LEAD(stage)    OVER (PARTITION BY order_id ORDER BY timestamp) AS to_stage,
         timestamp                                                        AS entered_at,
         LEAD(timestamp) OVER (PARTITION BY order_id ORDER BY timestamp)  AS exited_at,
         ROUND(
@@ -34,26 +34,26 @@ status_intervals AS (
                 LEAD(timestamp) OVER (PARTITION BY order_id ORDER BY timestamp)
             ) - JULIANDAY(timestamp)) * 24,
             2
-        )                                                                AS hours_in_status
+        )                                                                AS hours_in_stage
     FROM raw_logs
 ),
 
 -- ── CTE 3: Derive key milestone timestamps per order ─────────────────────
--- We pull the timestamp at each named status milestone via MIN() over a filter.
+-- We pull the timestamp at each named stage milestone via MIN() over a filter.
 -- NULLIF handles orders that never reached Shipped or Delivered (cancelled early).
 order_timeline AS (
     SELECT
         order_id,
-        MIN(CASE WHEN from_status = 'Confirmed'   THEN entered_at END) AS confirmed_at,
-        MIN(CASE WHEN from_status = 'Shipped'     THEN entered_at END) AS shipped_at,
-        MIN(CASE WHEN from_status = 'Delivered'   THEN entered_at END) AS delivered_at,
-        MAX(CASE WHEN from_status = 'Backordered' THEN 1 ELSE 0 END)   AS was_backordered,
-        MAX(CASE WHEN from_status = 'Cancelled'   THEN 1 ELSE 0 END)   AS was_cancelled,
+        MIN(CASE WHEN from_stage = 'Confirmed'   THEN entered_at END) AS confirmed_at,
+        MIN(CASE WHEN from_stage = 'Shipped'     THEN entered_at END) AS shipped_at,
+        MIN(CASE WHEN from_stage = 'Delivered'   THEN entered_at END) AS delivered_at,
+        MAX(CASE WHEN from_stage = 'Backordered' THEN 1 ELSE 0 END)   AS was_backordered,
+        MAX(CASE WHEN from_stage = 'Cancelled'   THEN 1 ELSE 0 END)   AS was_cancelled,
         ROUND(SUM(CASE
-            WHEN from_status NOT IN ('Backordered','Cancelled','Delivered')
-            THEN hours_in_status ELSE 0
+            WHEN from_stage NOT IN ('Backordered','Cancelled','Delivered')
+            THEN hours_in_stage ELSE 0
         END), 2)                                                         AS total_active_hours
-    FROM status_intervals
+    FROM stage_intervals
     GROUP BY order_id
 ),
 
@@ -63,25 +63,25 @@ order_timeline AS (
 ranked_stages AS (
     SELECT
         order_id,
-        from_status,
-        hours_in_status,
+        from_stage,
+        hours_in_stage,
         ROW_NUMBER() OVER (
             PARTITION BY order_id
-            ORDER BY hours_in_status DESC
+            ORDER BY hours_in_stage DESC
         ) AS stage_rank
-    FROM status_intervals
+    FROM stage_intervals
     WHERE
-        to_status IS NOT NULL
-        AND from_status NOT IN ('Backordered', 'Cancelled', 'Delivered')
+        to_stage IS NOT NULL
+        AND from_stage NOT IN ('Backordered', 'Cancelled', 'Delivered')
 ),
 
 bottleneck_stages AS (
-    SELECT order_id, from_status AS bottleneck_stage
+    SELECT order_id, from_stage AS bottleneck_stage
     FROM ranked_stages
     WHERE stage_rank = 1
 ),
 
--- ── CTE 5: Compute derived time metrics and SLA status ───────────────────
+-- ── CTE 5: Compute derived time metrics and SLA stage ───────────────────
 order_metrics AS (
     SELECT
         o.order_id,
@@ -110,7 +110,7 @@ order_metrics AS (
                 CASE WHEN JULIANDAY(t.shipped_at) - JULIANDAY(o.order_date) > 2.0 THEN 'Breached' ELSE 'On-Time' END
             ELSE   -- Standard
                 CASE WHEN JULIANDAY(t.shipped_at) - JULIANDAY(o.order_date) > 3.0 THEN 'Breached' ELSE 'On-Time' END
-        END                                                            AS sla_status
+        END                                                            AS sla_stage
     FROM raw_orders o
     JOIN order_timeline t ON o.order_id = t.order_id
 )
@@ -132,8 +132,8 @@ SELECT
     m.time_to_deliver_hours,
     m.was_backordered,
     m.was_cancelled,
-    m.sla_status,
-    CASE WHEN m.sla_status = 'Breached' THEN 1 ELSE 0 END AS sla_breached,
+    m.sla_stage,
+    CASE WHEN m.sla_stage = 'Breached' THEN 1 ELSE 0 END AS sla_breached,
     b.bottleneck_stage
 FROM order_metrics m
 JOIN raw_orders o ON m.order_id = o.order_id
